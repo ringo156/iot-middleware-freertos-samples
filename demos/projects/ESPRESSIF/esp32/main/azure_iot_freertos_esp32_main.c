@@ -18,6 +18,9 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "nvs_flash.h"
+
+#include "atecc608.h"
+
 /*-----------------------------------------------------------*/
 
 #define NR_OF_IP_ADDRESSES_TO_WAIT_FOR 1
@@ -65,7 +68,16 @@ static xSemaphoreHandle s_semph_get_ip_addrs;
 static esp_ip4_addr_t s_ip_addr;
 /*-----------------------------------------------------------*/
 
-extern void vStartDemoTask( void );
+extern void vStartDemoTask(void);
+
+static void ateccTask(void *arg);
+
+static void ateccTask(void *arg)
+{
+    atecc608init();
+    vTaskDelete(NULL);
+}
+
 /*-----------------------------------------------------------*/
 
 /**
@@ -86,11 +98,11 @@ static void on_got_ip(void *arg, esp_event_base_t event_base,
     if (!is_our_netif(TAG, event->esp_netif))
     {
         ESP_LOGW(TAG, "Got IPv4 from another interface \"%s\": ignored",
-            esp_netif_get_desc(event->esp_netif));
+                 esp_netif_get_desc(event->esp_netif));
         return;
     }
     ESP_LOGI(TAG, "Got IPv4 event: Interface \"%s\" address: " IPSTR,
-        esp_netif_get_desc(event->esp_netif), IP2STR(&event->ip_info.ip));
+             esp_netif_get_desc(event->esp_netif), IP2STR(&event->ip_info.ip));
     memcpy(&s_ip_addr, &event->ip_info.ip, sizeof(s_ip_addr));
     xSemaphoreGive(s_semph_get_ip_addrs);
 }
@@ -144,29 +156,29 @@ static esp_netif_t *wifi_start(void)
     esp_wifi_set_default_wifi_sta_handlers();
 
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT,
-        WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect, NULL));
+                                               WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,
-        IP_EVENT_STA_GOT_IP, &on_got_ip, NULL));
+                                               IP_EVENT_STA_GOT_IP, &on_got_ip, NULL));
 #ifdef CONFIG_EXAMPLE_CONNECT_IPV6
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT,
-        WIFI_EVENT_STA_CONNECTED, &on_wifi_connect, netif));
+                                               WIFI_EVENT_STA_CONNECTED, &on_wifi_connect, netif));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,
-        IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
+                                               IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
 #endif
 
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     wifi_config_t wifi_config =
-    {
-        .sta =
         {
-            .ssid = CONFIG_SAMPLE_IOT_WIFI_SSID,
-            .password = CONFIG_SAMPLE_IOT_WIFI_PASSWORD,
-            .scan_method = SAMPLE_IOT_WIFI_SCAN_METHOD,
-            .sort_method = SAMPLE_IOT_WIFI_CONNECT_AP_SORT_METHOD,
-            .threshold.rssi = CONFIG_SAMPLE_IOT_WIFI_SCAN_RSSI_THRESHOLD,
-            .threshold.authmode = SAMPLE_IOT_WIFI_SCAN_AUTH_MODE_THRESHOLD,
-        },
-    };
+            .sta =
+                {
+                    .ssid = CONFIG_SAMPLE_IOT_WIFI_SSID,
+                    .password = CONFIG_SAMPLE_IOT_WIFI_PASSWORD,
+                    .scan_method = SAMPLE_IOT_WIFI_SCAN_METHOD,
+                    .sort_method = SAMPLE_IOT_WIFI_CONNECT_AP_SORT_METHOD,
+                    .threshold.rssi = CONFIG_SAMPLE_IOT_WIFI_SCAN_RSSI_THRESHOLD,
+                    .threshold.authmode = SAMPLE_IOT_WIFI_SCAN_AUTH_MODE_THRESHOLD,
+                },
+        };
     ESP_LOGI(TAG, "Connecting to %s...", wifi_config.sta.ssid);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
@@ -180,14 +192,14 @@ static void wifi_stop(void)
 {
     esp_netif_t *wifi_netif = get_example_netif_from_desc("sta");
     ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT,
-        WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect));
+                                                 WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect));
     ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT,
-        IP_EVENT_STA_GOT_IP, &on_got_ip));
+                                                 IP_EVENT_STA_GOT_IP, &on_got_ip));
 #ifdef CONFIG_EXAMPLE_CONNECT_IPV6
     ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT,
-        IP_EVENT_GOT_IP6, &on_got_ipv6));
+                                                 IP_EVENT_GOT_IP6, &on_got_ipv6));
     ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT,
-        WIFI_EVENT_STA_CONNECTED, &on_wifi_connect));
+                                                 WIFI_EVENT_STA_CONNECTED, &on_wifi_connect));
 #endif
     esp_err_t err = esp_wifi_stop();
     if (err == ESP_ERR_WIFI_NOT_INIT)
@@ -214,7 +226,7 @@ static esp_err_t example_connect(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_netif_t* esp_netif = wifi_start();
+    esp_netif_t *esp_netif = wifi_start();
     (void)esp_netif;
 
     /* create semaphore if at least one interface is active */
@@ -269,10 +281,12 @@ static void initialize_time()
 
 void app_main(void)
 {
+    xTaskCreatePinnedToCore(ateccTask, "ateccTask", 2048 * 10, NULL, 1, NULL, 1);
+
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    //Allow other core to finish initialization
+    // Allow other core to finish initialization
     vTaskDelay(pdMS_TO_TICKS(100));
 
     (void)example_connect();
@@ -283,7 +297,7 @@ void app_main(void)
 }
 /*-----------------------------------------------------------*/
 
-uint64_t ullGetUnixTime( void )
+uint64_t ullGetUnixTime(void)
 {
     time_t now = time(NULL);
 
